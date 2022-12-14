@@ -59,7 +59,7 @@ function get_file_name_extension(file_name) {
 function get_file_name_without_extension(file_name) {
     return file_name.slice(0, file_name.length-(1+get_file_name_extension(file_name).length));
 }
-function compress_png_files(tmp_path, path, new_extension) {
+function compress_png_file(tmp_path, path, new_extension) {
     return new Promise(resolve => {
         sharp(tmp_path)
             .png({
@@ -74,10 +74,29 @@ function compress_png_files(tmp_path, path, new_extension) {
             });
     });
 }
+function compress_jpeg_file(tmp_path, path, new_extension) {
+    return new Promise(resolve => {
+        sharp(tmp_path)
+            .jpeg({
+                quality: 80,
+                progressive: true,
+                optimizeScans: true,
+                trellisQuantisation: true,
+                overshootDeringing: true,
+                quantizationTable: 3,
+                optimizeCoding: true
+            })
+            .toFile(`${path}.${new_extension}`, (err, info) => {
+                fs.unlinkSync(tmp_path);
+
+                resolve(true);
+            });
+    });
+}
 function compress_image_files() {
     const process_start_time = performance.now();
     const working_directory = `${process.cwd().replaceAll('\\', '/')}/`;
-    const supported_file_types = ['jpeg', 'png', 'svg', 'webp'];
+    const supported_file_types = ['jpeg', 'jpg', 'png', 'svg', 'webp'];
     const image_files = [];
 
     fs.readdirSync(working_directory).forEach(file => {
@@ -96,9 +115,21 @@ function compress_image_files() {
             fs.copyFileSync(working_directory + image_files[i], `${working_directory + tmp_file_indicator + file_name}.${file_name_extension}`);
 
             fs.unlinkSync(working_directory + image_files[i]);
-
+            
             if(file_name_extension == 'png') {
-                compress_png_files(working_directory + tmp_file_indicator + image_files[i], working_directory + file_name, 'png').then(() => {
+                compress_png_file(working_directory + tmp_file_indicator + image_files[i], working_directory + file_name, 'png').then(() => {
+                    if(i == image_files.length-1) {
+                        const process_end_time = performance.now();
+                        resolve([image_files.length, process_end_time - process_start_time]);
+                    }
+                });
+            } else if(file_name_extension == 'jpeg' || file_name_extension == 'jpg') {
+                if(file_name_extension == 'jpg') {
+                    fs.copyFileSync(working_directory + tmp_file_indicator + image_files[i], `${working_directory + tmp_file_indicator + file_name}.jpeg`);
+                    fs.unlinkSync(working_directory + tmp_file_indicator + image_files[i]);
+                }
+
+                compress_jpeg_file(`${working_directory + tmp_file_indicator + file_name}.jpeg`, working_directory + file_name, 'jpeg').then(() => {
                     if(i == image_files.length-1) {
                         const process_end_time = performance.now();
                         resolve([image_files.length, process_end_time - process_start_time]);
