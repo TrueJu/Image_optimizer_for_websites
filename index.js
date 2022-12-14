@@ -8,7 +8,7 @@ const errors = {
     "invalid_flag": "One or more provided flags are invalid. Please refer to the instructions (-help) for troubleshooting."
 }
 const commands_help = {
-    "auto": "Is the default flag if none other is provided. It optimizes every image file in the target directory without changing its filetype.",
+    "auto": `Is the default flag if none other is provided. It optimizes every image file in the target directory without changing its filetype. ${print_text_in_color('magenta', 'EXCEPTION')}: .jpg -> .jpeg`,
     "toWEBP": "Converts all image files of filetype (PNG, JPEG, SVG) to WEBP files."
 }
 
@@ -173,7 +173,7 @@ function get_run_flags() {
 
     for(let i=0;i<process.argv.length;i++) {
         if(process.argv[i].slice(0, 1) == "-") {
-            _tmp_flags.push(process.argv[i].slice(1, process.argv[i].length));
+            _tmp_flags.push(process.argv[i].slice(1, process.argv[i].length).toLocaleLowerCase());
         }
     }
 
