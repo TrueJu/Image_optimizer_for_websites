@@ -6,7 +6,7 @@
 # Image optimizer for the web
 
 How to use:
-```shell 
+```javascript
 //run from directory in which the desired optimization should take place
 node /path/to/index.js <flags>
 ```
