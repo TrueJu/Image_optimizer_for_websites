@@ -8,8 +8,8 @@ const errors = {
     "invalid_flag": "One or more provided flags are invalid. Please refer to the instructions (-help) for troubleshooting."
 }
 const commands_help = {
-    "auto": `Is the default flag if none other is provided. It optimizes every image file in the target directory without changing its filetype. ${print_text_in_color('magenta', 'EXCEPTION')}: .jpg -> .jpeg`,
-    "toWEBP": "Converts all image files of filetype (PNG, JPEG, SVG) to WEBP files."
+    "auto": `Is the default flag if none other is provided. It optimizes every image file in the target directory without changing its filetype. ${print_text_in_color('cyan', 'EXCEPTION')}: .jpg -> .jpeg`,
+    "toWEBP": "Converts all image files of filetype (PNG, JPEG/JPG) to WEBP files."
 }
 
 if(require.main === module) { main(); }
@@ -229,7 +229,7 @@ function compress_image_files() {
     });
 }
 function run_help_dialogue() {
-    let _tmp_help_dialogue = '-----------------------------------\n';
+    let _tmp_help_dialogue = 'To use flag(s) add a "-" in front of each flag you want to use\n\nList of flags\n-----------------------------------\n';
     let counter = 1;
 
     for(const [cmd, help] of Object.entries(commands_help)) {
