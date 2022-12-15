@@ -22,7 +22,7 @@ node /path/to/index.js <flags>
 
 ###### *By prepending "-" to a supported flag you can use it`s features without providing additional information*
 
-####Example:
+#### Example:
 ```javascript
 node /path/to/index.js -o -toWEBP
 ```
