@@ -1,6 +1,7 @@
 const fs = require('fs');
 const { exit } = require('process');
 const sharp = require('sharp');
+const { spawn } = require('child_process');
 
 sharp.cache(false);
 
@@ -13,7 +14,7 @@ const commands_help = {
 }
 
 if(require.main === module) { main(); }
-
+//TODO: TMP FILES SAME NAME IN TMP FOLDER THEN AFTER THE WHOLE SCRIPT DELETE TMP FOLDER
 async function main() {
     let run_flags = get_run_flags();
 
@@ -22,18 +23,48 @@ async function main() {
         process.exit();
     }
 
+    run_flags = order_run_flags_by_execution(run_flags);
+
     if(run_flags.includes("help")) { run_help_dialogue(); }
 
     if(!run_flags.length) {
-        print_execution_report('compression', ... await compress_image_files());
+        const child = spawn('node', ['index.js', '-towebp']);
+        child.stdout.on('data', async data => {
+            console.log(data.toString());
+
+            if(data.toString().includes('stop conversion')) {
+                child.kill();
+                print_execution_report('compression', ... await compress_image_files());
+            }
+        });
     } else {
         for(let i=0;i<run_flags.length;i++) {
-            switch(run_flags[i].toLowerCase()) {
+            run_flags[i] = run_flags[i].toLocaleLowerCase();
+
+            switch(run_flags[i]) {
                 case "auto":
                     print_execution_report('compression', ... await compress_image_files());
                     break;
+                case "o":
+                    console.log("start compression");
+                    print_execution_report('compression', ... await compress_image_files());
+                    console.log("stop compression");
+                    break;
                 case "towebp":
-                    console.log("Converting...");
+                    console.log("start conversion");
+                    print_execution_report('conversion', ... await image_files_to_webp());
+                    
+                    const files = fs.readdirSync('.');
+
+                    // Filter the list of files to only include files that end with .jpg
+                    const jpgFiles = files.filter(file => file.endsWith('.jpg'));
+
+                    // Loop through the list of .jpg files and delete each one
+                    jpgFiles.forEach(file => {
+                    fs.unlinkSync(file);
+                    });
+
+                    console.log("stop conversion");
                     break;
                 default:
                     break;
@@ -41,13 +72,58 @@ async function main() {
         }
     }
 }
+function image_files_to_webp() {
+    const process_start_time = performance.now();
+    const working_directory = `${process.cwd().replaceAll('\\', '/')}/`;
+    const supported_file_types = ['jpeg', 'jpg', 'png'];
+    const image_files = [];
 
+    fs.readdirSync(working_directory).forEach(file => {
+        if(supported_file_types.includes(get_file_name_extension(file))) {
+            image_files.push(file);
+        }
+    });
+
+    return new Promise(resolve => {
+        if(image_files.length < 1) {
+            const process_end_time = performance.now();
+            resolve([image_files.length, process_end_time - process_start_time]);
+        }
+
+        for(let i=0;i<image_files.length;i++) {
+            convert_image_file(working_directory + image_files[i], 'webp').then(() => {
+                if(i == image_files.length-1) {
+                    const process_end_time = performance.now();
+                    resolve([image_files.length, process_end_time - process_start_time]);
+                }
+            });
+        }
+    });
+}
+function convert_image_file(path, new_extension) {
+    return new Promise(resolve => {
+        if(get_file_name_extension(path) == new_extension) {
+            resolve(true);
+        } else {
+            sharp(path)
+                .toFormat(new_extension)
+                .toFile(`${get_file_name_without_extension(path)}.${new_extension}`, async (err, info) => {
+                    await fs.promises.unlink(path);
+
+                    resolve(true);
+                });
+        }
+    });
+}
 function print_execution_report(process_type, processed_amount, process_duration) {
     switch(process_type) {
         case 'compression':
             console.log(`Finished compressing ${processed_amount} files, in ${process_duration} Milliseconds.`);
             break;
-    
+        case 'conversion':
+            console.log(`Finished converting ${processed_amount} files, in ${process_duration} Milliseconds.`);
+            break;
+
         default:
             break;
     }
@@ -67,8 +143,8 @@ function compress_png_file(tmp_path, path, new_extension) {
                 adaptiveFiltering: false,
                 effort: 1
             })
-            .toFile(`${path}.${new_extension}`, (err, info) => {
-                fs.unlinkSync(tmp_path);
+            .toFile(`${path}.${new_extension}`, async (err, info) => {
+                await fs.promises.unlink(tmp_path);
 
                 resolve(true);
             });
@@ -86,14 +162,32 @@ function compress_jpeg_file(tmp_path, path, new_extension) {
                 quantizationTable: 3,
                 optimizeCoding: true
             })
-            .toFile(`${path}.${new_extension}`, (err, info) => {
-                fs.unlinkSync(tmp_path);
+            .toFile(`${path}.${new_extension}`, async (err, info) => {
+                try {
+                    await fs.promises.unlink(tmp_path);
+                } catch(error) {
+
+                }
 
                 resolve(true);
             });
     });
 }
-function compress_image_files() {
+function compress_webp_file(tmp_path, path, new_extension) {
+    return new Promise(resolve => {
+        sharp(tmp_path)
+            .webp({
+                quality: 80,
+                effort: 0
+            })
+            .toFile(`${path}.${new_extension}`, async (err, info) => {
+                await fs.promises.unlink(tmp_path);
+
+                resolve(true);
+            });
+    });
+}
+async function compress_image_files() {
     const process_start_time = performance.now();
     const working_directory = `${process.cwd().replaceAll('\\', '/')}/`;
     const supported_file_types = ['jpeg', 'jpg', 'png', 'svg', 'webp'];
@@ -105,16 +199,26 @@ function compress_image_files() {
         }
     });
 
-    return new Promise(resolve => {
+    return new Promise(async resolve => {
+        if(image_files.length < 1) {
+            const process_end_time = performance.now();
+            resolve([image_files.length, process_end_time - process_start_time]);
+        }
 
         for(let i=0;i<image_files.length;i++) {
             const file_name_extension = get_file_name_extension(image_files[i]);
             const file_name = get_file_name_without_extension(image_files[i]);
             const tmp_file_indicator = 'tmp_';
 
-            fs.copyFileSync(working_directory + image_files[i], `${working_directory + tmp_file_indicator + file_name}.${file_name_extension}`);
+            await fs.promises.copyFile(working_directory + image_files[i], `${working_directory + tmp_file_indicator + file_name}.${file_name_extension}`);
 
-            fs.unlinkSync(working_directory + image_files[i]);
+            try {
+                await fs.promises.unlink(working_directory + image_files[i], (err) => {
+                    //console.log(err);
+                });
+            } catch(error) {
+                //console.log(error);
+            }
             
             if(file_name_extension == 'png') {
                 compress_png_file(working_directory + tmp_file_indicator + image_files[i], working_directory + file_name, 'png').then(() => {
@@ -125,8 +229,8 @@ function compress_image_files() {
                 });
             } else if(file_name_extension == 'jpeg' || file_name_extension == 'jpg') {
                 if(file_name_extension == 'jpg') {
-                    fs.copyFileSync(working_directory + tmp_file_indicator + image_files[i], `${working_directory + tmp_file_indicator + file_name}.jpeg`);
-                    fs.unlinkSync(working_directory + tmp_file_indicator + image_files[i]);
+                    await fs.promises.copyFile(`${working_directory + tmp_file_indicator + file_name}.${file_name_extension}`, `${working_directory + tmp_file_indicator + file_name}.jpeg`);
+                    await fs.promises.unlink(`${working_directory + tmp_file_indicator + file_name}.${file_name_extension}`);
                 }
 
                 compress_jpeg_file(`${working_directory + tmp_file_indicator + file_name}.jpeg`, working_directory + file_name, 'jpeg').then(() => {
@@ -135,9 +239,15 @@ function compress_image_files() {
                         resolve([image_files.length, process_end_time - process_start_time]);
                     }
                 });
+            } else if(file_name_extension == 'webp') {
+                compress_webp_file(working_directory + tmp_file_indicator + image_files[i], working_directory + file_name, 'webp').then(() => {
+                    if(i == image_files.length-1) {
+                        const process_end_time = performance.now();
+                        resolve([image_files.length, process_end_time - process_start_time]);
+                    }
+                });
             }
         }
-
     });
 }
 function run_help_dialogue() {
@@ -157,7 +267,7 @@ function run_help_dialogue() {
     process.exit();
 }
 function check_run_flag_error(run_flags) {
-    const supported_flags = ["auto", "towebp", "help"];
+    const supported_flags = ["auto", "towebp", "help", "o"];
     let invalid_flags = [];
 
     for(let i=0;i<run_flags.length;i++) {
@@ -167,6 +277,26 @@ function check_run_flag_error(run_flags) {
     }
 
     return invalid_flags.length == 0 ? false : invalid_flags;
+}
+function order_run_flags_by_execution(run_flags) {
+    if(run_flags.includes('towebp')) {
+        if(run_flags.length > 1) {
+            const _tmp_run_flags = ['towebp'];
+            const towebp_index = run_flags.indexOf('towebp');
+
+            run_flags.splice(towebp_index, 1);
+
+            for(let i=0;i<run_flags.length;i++) {
+                _tmp_run_flags.push(run_flags[i]);
+            }
+
+            return _tmp_run_flags;
+        } else {
+            return run_flags;
+        }
+    } else {
+        return run_flags;
+    }
 }
 function get_run_flags() {
     let _tmp_flags = [];
