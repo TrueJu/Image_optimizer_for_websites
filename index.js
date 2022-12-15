@@ -1,7 +1,6 @@
 const fs = require('fs');
-const { exit } = require('process');
+const path = require('path');
 const sharp = require('sharp');
-const { spawn } = require('child_process');
 
 sharp.cache(false);
 
@@ -14,7 +13,6 @@ const commands_help = {
 }
 
 if(require.main === module) { main(); }
-//TODO: TMP FILES SAME NAME IN TMP FOLDER THEN AFTER THE WHOLE SCRIPT DELETE TMP FOLDER
 async function main() {
     let run_flags = get_run_flags();
 
@@ -26,6 +24,9 @@ async function main() {
     run_flags = order_run_flags_by_execution(run_flags);
 
     if(run_flags.includes("help")) { run_help_dialogue(); }
+
+    const working_directory = `${process.cwd().replaceAll('\\', '/')}/`;
+    const dir_size = [await get_directory_size(working_directory), 0];
 
     if(!run_flags.length) {
         print_execution_report('compression', ... await compress_image_files());
@@ -47,7 +48,36 @@ async function main() {
                     break;
             }
         }
+
+        dir_size[1] = await get_directory_size(working_directory);
+
+        print_directory_size_change(dir_size[0], dir_size[1]);
     }
+}
+function print_directory_size_change(size_before, size_after) {
+    const formatted_bytes = [size_before.toString().replace(/\B(?=(\d{3})+(?!\d))/g, "`"), size_after.toString().replace(/\B(?=(\d{3})+(?!\d))/g, "`")];
+    const converted_bytes = [0, 0];
+
+    converted_bytes[0] = [convert_bytes(size_before)[0], Math.round((convert_bytes(size_before)[1] + Number.EPSILON) * 100) / 100];
+    converted_bytes[1] = [convert_bytes(size_after)[0], Math.round((convert_bytes(size_after)[1] + Number.EPSILON) * 100) / 100];
+
+    console.log(`\nFiles size before execution: ${converted_bytes[0][1]} ${converted_bytes[0][0]} (${formatted_bytes[0]} bytes)\nFiles size after execution: ${converted_bytes[1][1]} ${converted_bytes[1][0]} (${formatted_bytes[1]} bytes)`);
+}
+function convert_bytes(bytes) {
+    const kilobytes = bytes / 1024;
+    let megabytes = false;
+
+    if(bytes.toString().length > 6) {
+        megabytes = kilobytes / 1024;
+    }
+
+    return megabytes ? ['MB', megabytes] : ['KB', kilobytes];
+}
+async function get_directory_size(directory) {
+    const files = await fs.promises.readdir(directory); 
+    const stats = files.map(async file => await fs.promises.stat(path.join(directory, file)));
+  
+    return (await Promise.all(stats)).reduce((accumulator, {size}) => accumulator + size, 0 );
 }
 function image_files_to_webp() {
     const process_start_time = performance.now();
@@ -89,12 +119,15 @@ async function convert_image_file(path, new_extension) {
     }
 }
 function print_execution_report(process_type, processed_amount, process_duration) {
+    const formatted_process_duration = Math.round((process_duration / (process_duration.toString().length >= 4 ? 1000 : 1) + Number.EPSILON) * 100) / 100;
+    const process_duration_without_comma_str = process_duration.toString().split('.')[0];
+
     switch(process_type) {
         case 'compression':
-            console.log(`Finished compressing ${processed_amount} files, in ${process_duration} Milliseconds.`);
+            console.log(`Finished compressing ${processed_amount} ${processed_amount > 1 || processed_amount < 1 ? 'files' : 'file'}, in ${formatted_process_duration} ${process_duration_without_comma_str.length >= 4 ? formatted_process_duration == 1 ? 'Second' : 'Seconds' : formatted_process_duration == 1 ? 'Millisecond' : 'Milliseconds' }.`);
             break;
         case 'conversion':
-            console.log(`Finished converting ${processed_amount} files, in ${process_duration} Milliseconds.`);
+            console.log(`Finished converting ${processed_amount} ${processed_amount > 1 || processed_amount < 1 ? 'files' : 'file'}, in ${formatted_process_duration} ${process_duration_without_comma_str.length >= 4 ? formatted_process_duration == 1 ? 'Second' : 'Seconds' : formatted_process_duration == 1 ? 'Millisecond' : 'Milliseconds' }.`);
             break;
 
         default:
@@ -108,8 +141,8 @@ function get_file_name_extension(file_name) {
 function get_file_name_without_extension(file_name) {
     return file_name.slice(0, file_name.length-(1+get_file_name_extension(file_name).length));
 }
-async function compress_png_file(tmp_path, path, new_extension) {
-    let buffer = await sharp(`${path}.${new_extension}`)
+async function compress_png_file(path, extension) {
+    let buffer = await sharp(`${path}.${extension}`)
         .png({
             compressionLevel: 9,
             adaptiveFiltering: false,
@@ -117,10 +150,10 @@ async function compress_png_file(tmp_path, path, new_extension) {
         })
         .toBuffer();
 
-    await sharp(buffer).toFile(`${path}.${new_extension}`);
+    await sharp(buffer).toFile(`${path}.${extension}`);
 }
-async function compress_jpeg_file(tmp_path, path, new_extension) {
-    let buffer = await sharp(`${path}.${new_extension}`)
+async function compress_jpeg_file(path, extension) {
+    let buffer = await sharp(`${path}.${extension}`)
         .jpeg({
             quality: 80,
             progressive: true,
@@ -132,22 +165,21 @@ async function compress_jpeg_file(tmp_path, path, new_extension) {
         })
         .toBuffer();
 
-    await sharp(buffer).toFile(`${path}.${new_extension}`);
+    await sharp(buffer).toFile(`${path}.${extension}`);
 }
-async function compress_webp_file(tmp_path, path, new_extension) {
-    let buffer = await sharp(`${path}.${new_extension}`)
+async function compress_webp_file(path, extension) {
+    let buffer = await sharp(`${path}.${extension}`)
         .webp({
             quality: 80,
             effort: 0
         })
         .toBuffer();
 
-    await sharp(buffer).toFile(`${path}.${new_extension}`);
+    await sharp(buffer).toFile(`${path}.${extension}`);
 }
 function compress_image_files() {
     const process_start_time = performance.now();
     const working_directory = `${process.cwd().replaceAll('\\', '/')}/`;
-    const _tmp_directory = working_directory + '_tmp_/';
     const supported_file_types = ['jpeg', 'jpg', 'png', 'svg', 'webp'];
     const image_files = [];
 
@@ -166,20 +198,9 @@ function compress_image_files() {
         for(let i=0;i<image_files.length;i++) {
             const file_name_extension = get_file_name_extension(image_files[i]);
             const file_name = get_file_name_without_extension(image_files[i]);
-            /* const tmp_file_indicator = 'tmp_';
-
-            await fs.promises.copyFile(working_directory + image_files[i], `${_tmp_directory + file_name}.${file_name_extension}`);
-
-            try {
-                await fs.promises.unlink(working_directory + image_files[i], (err) => {
-                    //console.log(err);
-                });
-            } catch(error) {
-                //console.log(error);
-            } */
             
             if(file_name_extension == 'png') {
-                await compress_png_file(_tmp_directory + image_files[i], working_directory + file_name, 'png');
+                await compress_png_file(working_directory + file_name, 'png');
 
                 if(i == image_files.length-1) {
                     const process_end_time = performance.now();
@@ -187,19 +208,17 @@ function compress_image_files() {
                 }
             } else if(file_name_extension == 'jpeg' || file_name_extension == 'jpg') {
                 if(file_name_extension == 'jpg') {
-                    //await fs.promises.copyFile(`${working_directory + file_name}.${file_name_extension}`, `${working_directory + file_name}.jpeg`);
-                    //await fs.promises.unlink(`${working_directory + file_name}.${file_name_extension}`);
                     await fs.promises.rename(`${working_directory + file_name}.${file_name_extension}`, `${working_directory + file_name}.jpeg`);
                 }
 
-                await compress_jpeg_file(`${_tmp_directory + file_name}.jpeg`, working_directory + file_name, 'jpeg');
+                await compress_jpeg_file(working_directory + file_name, 'jpeg');
 
                 if(i == image_files.length-1) {
                     const process_end_time = performance.now();
                     resolve([image_files.length, process_end_time - process_start_time]);
                 }
             } else if(file_name_extension == 'webp') {
-                await compress_webp_file(_tmp_directory + image_files[i], working_directory + file_name, 'webp');
+                await compress_webp_file(working_directory + file_name, 'webp');
 
                 if(i == image_files.length-1) {
                     const process_end_time = performance.now();
