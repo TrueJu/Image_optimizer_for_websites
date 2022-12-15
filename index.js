@@ -38,27 +38,10 @@ async function main() {
                     print_execution_report('compression', ... await compress_image_files());
                     break;
                 case "o":
-                    console.log("start compression");
                     print_execution_report('compression', ... await compress_image_files());
-                    console.log("stop compression");
                     break;
                 case "towebp":
-                    console.log("start conversion");
                     print_execution_report('conversion', ... await image_files_to_webp());
-
-                    /* setTimeout(() => {
-                        const files = fs.readdirSync('.');
-
-                        // Filter the list of files to only include files that end with .jpg
-                        const jpegFiles = files.filter(file => file.endsWith('.jpeg'));
-
-                        // Loop through the list of .jpg files and delete each one
-                        jpegFiles.forEach(file => {
-                            fs.unlinkSync(file);
-                        });
-                    }, 5000); */
-
-                    console.log("stop conversion");
                     break;
                 default:
                     break;
