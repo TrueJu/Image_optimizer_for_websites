@@ -1,47 +1,53 @@
-const fs = require('fs');
-const path = require('path');
-const sharp = require('sharp');
+const fs = require('fs');       //Communication with the filesystem
+const path = require('path');   //Format system paths
+const sharp = require('sharp'); //Handels image file conversion & image manipulation
 
-sharp.cache(false);
+sharp.cache(false); //Disable aggressive caching
 
-const errors = {
+const errors = {    //Contains all errors that could be displayed when running the script
     "invalid_flag": "One or more provided flags are invalid. Please refer to the instructions (-help) for troubleshooting."
 }
-const commands_help = {
+const commands_help = {     //-help flag content
     "auto": `Is the default flag if none other is provided. It optimizes every image file in the target directory without changing its filetype. ${print_text_in_color('cyan', 'EXCEPTION')}: .jpg -> .jpeg`,
     "toWEBP": "Converts all image files of filetype (PNG, JPEG/JPG) to WEBP files."
 }
 
 if(require.main === module) { main(); }
 async function main() {
-    let run_flags = get_run_flags();
+    let run_flags = get_run_flags();    //Parse flags provided on script execution
 
-    if(check_run_flag_error(run_flags)) {
+    if(check_run_flag_error(run_flags)) {   //Check if provided flags are supported and in the right format
         console.log(`${errors.invalid_flag} -> ${print_text_in_color("red", check_run_flag_error(run_flags).join(", "))}`);
         process.exit();
     }
 
+    //Run flags need to be ordered in some cases.
+    //If e.g. -toWEBP and -o are provided, the script 
+    //should first convert all files according to the
+    //-toWEBP flag and then optimize them (-o)
+    //This ordering makes it possible to provide script
+    //flags without thinking about their execution order
     run_flags = order_run_flags_by_execution(run_flags);
 
     if(run_flags.includes("help")) { run_help_dialogue(); }
 
-    const working_directory = `${process.cwd().replaceAll('\\', '/')}/`;
+    const working_directory = `${process.cwd().replaceAll('\\', '/')}/`;    //Holds a string of the directory the script got called from != index.js directory
     const dir_size = [await get_directory_size(working_directory), 0];
 
-    if(!run_flags.length) {
+    if(!run_flags.length) {     //If no flags are provided the script should perfom the 'auto' mode = -o
         print_execution_report('compression', ... await compress_image_files());
     } else {
         for(let i=0;i<run_flags.length;i++) {
             run_flags[i] = run_flags[i].toLocaleLowerCase();
 
             switch(run_flags[i]) {
-                case "auto":
+                case "auto":    //Using this flag is the equivalent to using no flag
                     print_execution_report('compression', ... await compress_image_files());
                     break;
-                case "o":
+                case "o":       //Optimizes/compresses images
                     print_execution_report('compression', ... await compress_image_files());
                     break;
-                case "towebp":
+                case "towebp":  //Converts PNG/JPEG/JPG to WEBP file
                     print_execution_report('conversion', ... await image_files_to_webp());
                     break;
                 default:
@@ -51,9 +57,15 @@ async function main() {
 
         dir_size[1] = await get_directory_size(working_directory);
 
+        //For comparison of how much the script was able to optimize/compress
+        //A size change dialogue is displayed
         print_directory_size_change(dir_size[0], dir_size[1]);
     }
 }
+//Takes the directory size before running the script and after running it.
+//The two inputs are in bytes and need to be formated with ` for better
+//readability. Then these bytes are converted to either be displayed as
+//e.g. 10 MB or e.g. 460 KB
 function print_directory_size_change(size_before, size_after) {
     const formatted_bytes = [size_before.toString().replace(/\B(?=(\d{3})+(?!\d))/g, "`"), size_after.toString().replace(/\B(?=(\d{3})+(?!\d))/g, "`")];
     const converted_bytes = [0, 0];
@@ -61,45 +73,53 @@ function print_directory_size_change(size_before, size_after) {
     converted_bytes[0] = [convert_bytes(size_before)[0], Math.round((convert_bytes(size_before)[1] + Number.EPSILON) * 100) / 100];
     converted_bytes[1] = [convert_bytes(size_after)[0], Math.round((convert_bytes(size_after)[1] + Number.EPSILON) * 100) / 100];
 
+    //Displays the before and after files size in MB/KB and bytes
     console.log(`\nFiles size before execution: ${converted_bytes[0][1]} ${converted_bytes[0][0]} (${formatted_bytes[0]} bytes)\nFiles size after execution: ${converted_bytes[1][1]} ${converted_bytes[1][0]} (${formatted_bytes[1]} bytes)`);
 }
+//Bytes are converted to either be displayed as
+//e.g. 10 MB or e.g. 460 KB
 function convert_bytes(bytes) {
     const kilobytes = bytes / 1024;
     let megabytes = false;
 
-    if(bytes.toString().length > 6) {
+    if(bytes.toString().length > 6) {   //If the length of the bytes is 7, KB should be replaced by MB
         megabytes = kilobytes / 1024;
     }
 
     return megabytes ? ['MB', megabytes] : ['KB', kilobytes];
 }
+//Calculates the size of the input directory without any subfolders
+//since for this script, only the image files, inside the first layer
+//of the folder, are important.
 async function get_directory_size(directory) {
     const files = await fs.promises.readdir(directory); 
     const stats = files.map(async file => await fs.promises.stat(path.join(directory, file)));
   
-    return (await Promise.all(stats)).reduce((accumulator, {size}) => accumulator + size, 0 );
+    return (await Promise.all(stats)).reduce((accumulator, {size}) => accumulator + size, 0 ); //Only return directory size
 }
+//Converts PNG/JPEG to WEBP
+//JPG files are converted to JPEG beforhand
 function image_files_to_webp() {
     const process_start_time = performance.now();
-    const working_directory = `${process.cwd().replaceAll('\\', '/')}/`;
-    const supported_file_types = ['jpeg', 'jpg', 'png'];
+    const working_directory = `${process.cwd().replaceAll('\\', '/')}/`;    //Holds a string of the directory the script got called from != index.js directory
+    const supported_file_types = ['jpeg', 'png'];
     const image_files = [];
 
-    fs.readdirSync(working_directory).forEach(file => {
+    fs.readdirSync(working_directory).forEach(file => {     //Create an array of files that have the correct filetype to be converted to WEBP
         if(supported_file_types.includes(get_file_name_extension(file))) {
             image_files.push(file);
         }
     });
 
     return new Promise(async resolve => {
-        if(image_files.length < 1) {
+        if(image_files.length < 1) {    //If there are no files to be converted end the -toWEBP flag process
             const process_end_time = performance.now();
             resolve([image_files.length, process_end_time - process_start_time]);
         }
 
-        for(let i=0;i<image_files.length;i++) {
+        for(let i=0;i<image_files.length;i++) {     //For each file run the convert_image_file function
             await convert_image_file(working_directory + image_files[i], 'webp').then(() => {
-                if(i == image_files.length-1) {
+                if(i == image_files.length-1) {     //If the last image file was converted, end the -toWEBP flag process
                     const process_end_time = performance.now();
                     resolve([image_files.length, process_end_time - process_start_time]);
                 }
@@ -107,21 +127,30 @@ function image_files_to_webp() {
         }
     });
 }
+//Takes the path of an image and it's wanted extension
+//as input.
 async function convert_image_file(path, new_extension) {
     if(get_file_name_extension(path) == new_extension) {
         resolve(true);
     } else {
         await sharp(path)
-            .toFormat(new_extension)
-            .toFile(`${get_file_name_without_extension(path)}.${new_extension}`);
+            .toFormat(new_extension)    //Forces new file format (conversion)
+            .toFile(`${get_file_name_without_extension(path)}.${new_extension}`);   //Write to the file with the new format
 
-        await fs.promises.unlink(path);
+        await fs.promises.unlink(path); //Delete the original file as it's been converted
     }
 }
+//Prints information to the console about what process has finished
+//What amount of data it has processed and how long that took in either Milliseconds or Seconds
 function print_execution_report(process_type, processed_amount, process_duration) {
+    //(process_duration / (process_duration.toString().length >= 4 ? 1000 : 1)
+    //Moves the decimal point depending on the process duration. 
+    //If process_duration >= 1000 milliseconds then divide by 1000 = 1 Second
+    //The number with the moved decimal point is then being rounded to 2 decimal points.
     const formatted_process_duration = Math.round((process_duration / (process_duration.toString().length >= 4 ? 1000 : 1) + Number.EPSILON) * 100) / 100;
     const process_duration_without_comma_str = process_duration.toString().split('.')[0];
 
+    //Logs the stats and formats the log to plural/singular, display Milliseconds/Seconds 
     switch(process_type) {
         case 'compression':
             console.log(`Finished compressing ${processed_amount} ${processed_amount > 1 || processed_amount < 1 ? 'files' : 'file'}, in ${formatted_process_duration} ${process_duration_without_comma_str.length >= 4 ? formatted_process_duration == 1 ? 'Second' : 'Seconds' : formatted_process_duration == 1 ? 'Millisecond' : 'Milliseconds' }.`);
@@ -141,6 +170,9 @@ function get_file_name_extension(file_name) {
 function get_file_name_without_extension(file_name) {
     return file_name.slice(0, file_name.length-(1+get_file_name_extension(file_name).length));
 }
+//By writing the image manipulation to a buffer
+//the script is able to change (overwrite) the file without
+//creating a temporary file.
 async function compress_png_file(path, extension) {
     let buffer = await sharp(`${path}.${extension}`)
         .png({
@@ -152,6 +184,9 @@ async function compress_png_file(path, extension) {
 
     await sharp(buffer).toFile(`${path}.${extension}`);
 }
+//By writing the image manipulation to a buffer
+//the script is able to change (overwrite) the file without
+//creating a temporary file.
 async function compress_jpeg_file(path, extension) {
     let buffer = await sharp(`${path}.${extension}`)
         .jpeg({
@@ -167,6 +202,9 @@ async function compress_jpeg_file(path, extension) {
 
     await sharp(buffer).toFile(`${path}.${extension}`);
 }
+//By writing the image manipulation to a buffer
+//the script is able to change (overwrite) the file without
+//creating a temporary file.
 async function compress_webp_file(path, extension) {
     let buffer = await sharp(`${path}.${extension}`)
         .webp({
@@ -177,20 +215,21 @@ async function compress_webp_file(path, extension) {
 
     await sharp(buffer).toFile(`${path}.${extension}`);
 }
+//Compresses all supported image files in a directory
 function compress_image_files() {
     const process_start_time = performance.now();
-    const working_directory = `${process.cwd().replaceAll('\\', '/')}/`;
-    const supported_file_types = ['jpeg', 'jpg', 'png', 'svg', 'webp'];
+    const working_directory = `${process.cwd().replaceAll('\\', '/')}/`;    //Holds a string of the directory the script got called from != index.js directory
+    const supported_file_types = ['jpeg', 'jpg', 'png', 'svg', 'webp'];     //Feature to compress/optimize SVG files is yet missing. SVGs are skipped
     const image_files = [];
 
-    fs.readdirSync(working_directory).forEach(file => {
+    fs.readdirSync(working_directory).forEach(file => {     //Create an array of files that have the correct filetype to be converted to WEBP
         if(supported_file_types.includes(get_file_name_extension(file))) {
             image_files.push(file);
         }
     });
 
     return new Promise(async resolve => {
-        if(image_files.length < 1) {
+        if(image_files.length < 1) {    //If there are no image files to be compressed then the process (-o or -auto) is ended
             const process_end_time = performance.now();
             resolve([image_files.length, process_end_time - process_start_time]);
         }
@@ -202,25 +241,26 @@ function compress_image_files() {
             if(file_name_extension == 'png') {
                 await compress_png_file(working_directory + file_name, 'png');
 
-                if(i == image_files.length-1) {
+                if(i == image_files.length-1) {     //If this was the last image file to be compressed then end the process
                     const process_end_time = performance.now();
                     resolve([image_files.length, process_end_time - process_start_time]);
                 }
             } else if(file_name_extension == 'jpeg' || file_name_extension == 'jpg') {
                 if(file_name_extension == 'jpg') {
+                    //JPG files are renamed to JPEG (modern format). No conversion needed
                     await fs.promises.rename(`${working_directory + file_name}.${file_name_extension}`, `${working_directory + file_name}.jpeg`);
                 }
 
                 await compress_jpeg_file(working_directory + file_name, 'jpeg');
 
-                if(i == image_files.length-1) {
+                if(i == image_files.length-1) {     //If this was the last image file to be compressed then end the process
                     const process_end_time = performance.now();
                     resolve([image_files.length, process_end_time - process_start_time]);
                 }
             } else if(file_name_extension == 'webp') {
                 await compress_webp_file(working_directory + file_name, 'webp');
 
-                if(i == image_files.length-1) {
+                if(i == image_files.length-1) {     //If this was the last image file to be compressed then end the process
                     const process_end_time = performance.now();
                     resolve([image_files.length, process_end_time - process_start_time]);
                 }
@@ -256,8 +296,14 @@ function check_run_flag_error(run_flags) {
 
     return invalid_flags.length == 0 ? false : invalid_flags;
 }
+//Run flags need to be ordered in some cases.
+//If e.g. -toWEBP and -o are provided, the script 
+//should first convert all files according to the
+//-toWEBP flag and then optimize them (-o)
+//This ordering makes it possible to provide script
+//flags without thinking about their execution order
 function order_run_flags_by_execution(run_flags) {
-    if(run_flags.includes('towebp')) {
+    if(run_flags.includes('towebp')) {      //If the flag -toWEBP is given, this block reorders it to be in first place
         if(run_flags.length > 1) {
             const _tmp_run_flags = ['towebp'];
             const towebp_index = run_flags.indexOf('towebp');
@@ -272,21 +318,23 @@ function order_run_flags_by_execution(run_flags) {
         } else {
             return run_flags;
         }
-    } else {
+    } else {    //If no flags need to be moved then return the flags as is. To add new sorting rule, insert else if statement above
         return run_flags;
     }
 }
+//Takes the script run arguments and returns them as a flag array
 function get_run_flags() {
     let _tmp_flags = [];
 
-    for(let i=0;i<process.argv.length;i++) {
+    for(let i=0;i<process.argv.length;i++) {    //Loop through arguments and save them as flags without a "-"
         if(process.argv[i].slice(0, 1) == "-") {
-            _tmp_flags.push(process.argv[i].slice(1, process.argv[i].length).toLocaleLowerCase());
+            _tmp_flags.push(process.argv[i].slice(1, process.argv[i].length).toLowerCase());
         }
     }
 
     return _tmp_flags;
 }
+//Console color-code formatting for displaying text in color
 function print_text_in_color(color, txt) {
     switch(color) {
         case "black":
