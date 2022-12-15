@@ -20,7 +20,7 @@ node /path/to/index.js <flags>
 - auto
 "Automatically runs image optimization" -> equivalent to no flag
 
-###### *By prepending "-" to a supported flag you can use it`s features without providing additional information*
+###### *Prepend "-" to a supported flag to use it`s features*
 
 #### Example:
 ```javascript
