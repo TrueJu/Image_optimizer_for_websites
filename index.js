@@ -28,15 +28,7 @@ async function main() {
     if(run_flags.includes("help")) { run_help_dialogue(); }
 
     if(!run_flags.length) {
-        const child = spawn('node', ['index.js', '-towebp']);
-        child.stdout.on('data', async data => {
-            console.log(data.toString());
-
-            if(data.toString().includes('stop conversion')) {
-                child.kill();
-                print_execution_report('compression', ... await compress_image_files());
-            }
-        });
+        print_execution_report('compression', ... await compress_image_files());
     } else {
         for(let i=0;i<run_flags.length;i++) {
             run_flags[i] = run_flags[i].toLocaleLowerCase();
@@ -53,16 +45,18 @@ async function main() {
                 case "towebp":
                     console.log("start conversion");
                     print_execution_report('conversion', ... await image_files_to_webp());
-                    
-                    const files = fs.readdirSync('.');
 
-                    // Filter the list of files to only include files that end with .jpg
-                    const jpgFiles = files.filter(file => file.endsWith('.jpg'));
+                    /* setTimeout(() => {
+                        const files = fs.readdirSync('.');
 
-                    // Loop through the list of .jpg files and delete each one
-                    jpgFiles.forEach(file => {
-                    fs.unlinkSync(file);
-                    });
+                        // Filter the list of files to only include files that end with .jpg
+                        const jpegFiles = files.filter(file => file.endsWith('.jpeg'));
+
+                        // Loop through the list of .jpg files and delete each one
+                        jpegFiles.forEach(file => {
+                            fs.unlinkSync(file);
+                        });
+                    }, 5000); */
 
                     console.log("stop conversion");
                     break;
@@ -84,14 +78,14 @@ function image_files_to_webp() {
         }
     });
 
-    return new Promise(resolve => {
+    return new Promise(async resolve => {
         if(image_files.length < 1) {
             const process_end_time = performance.now();
             resolve([image_files.length, process_end_time - process_start_time]);
         }
 
         for(let i=0;i<image_files.length;i++) {
-            convert_image_file(working_directory + image_files[i], 'webp').then(() => {
+            await convert_image_file(working_directory + image_files[i], 'webp').then(() => {
                 if(i == image_files.length-1) {
                     const process_end_time = performance.now();
                     resolve([image_files.length, process_end_time - process_start_time]);
@@ -100,20 +94,16 @@ function image_files_to_webp() {
         }
     });
 }
-function convert_image_file(path, new_extension) {
-    return new Promise(resolve => {
-        if(get_file_name_extension(path) == new_extension) {
-            resolve(true);
-        } else {
-            sharp(path)
-                .toFormat(new_extension)
-                .toFile(`${get_file_name_without_extension(path)}.${new_extension}`, async (err, info) => {
-                    await fs.promises.unlink(path);
+async function convert_image_file(path, new_extension) {
+    if(get_file_name_extension(path) == new_extension) {
+        resolve(true);
+    } else {
+        await sharp(path)
+            .toFormat(new_extension)
+            .toFile(`${get_file_name_without_extension(path)}.${new_extension}`);
 
-                    resolve(true);
-                });
-        }
-    });
+        await fs.promises.unlink(path);
+    }
 }
 function print_execution_report(process_type, processed_amount, process_duration) {
     switch(process_type) {
@@ -135,61 +125,46 @@ function get_file_name_extension(file_name) {
 function get_file_name_without_extension(file_name) {
     return file_name.slice(0, file_name.length-(1+get_file_name_extension(file_name).length));
 }
-function compress_png_file(tmp_path, path, new_extension) {
-    return new Promise(resolve => {
-        sharp(tmp_path)
-            .png({
-                compressionLevel: 9,
-                adaptiveFiltering: false,
-                effort: 1
-            })
-            .toFile(`${path}.${new_extension}`, async (err, info) => {
-                await fs.promises.unlink(tmp_path);
+async function compress_png_file(tmp_path, path, new_extension) {
+    let buffer = await sharp(`${path}.${new_extension}`)
+        .png({
+            compressionLevel: 9,
+            adaptiveFiltering: false,
+            effort: 1
+        })
+        .toBuffer();
 
-                resolve(true);
-            });
-    });
+    await sharp(buffer).toFile(`${path}.${new_extension}`);
 }
-function compress_jpeg_file(tmp_path, path, new_extension) {
-    return new Promise(resolve => {
-        sharp(tmp_path)
-            .jpeg({
-                quality: 80,
-                progressive: true,
-                optimizeScans: true,
-                trellisQuantisation: true,
-                overshootDeringing: true,
-                quantizationTable: 3,
-                optimizeCoding: true
-            })
-            .toFile(`${path}.${new_extension}`, async (err, info) => {
-                try {
-                    await fs.promises.unlink(tmp_path);
-                } catch(error) {
+async function compress_jpeg_file(tmp_path, path, new_extension) {
+    let buffer = await sharp(`${path}.${new_extension}`)
+        .jpeg({
+            quality: 80,
+            progressive: true,
+            optimizeScans: true,
+            trellisQuantisation: true,
+            overshootDeringing: true,
+            quantizationTable: 3,
+            optimizeCoding: true
+        })
+        .toBuffer();
 
-                }
-
-                resolve(true);
-            });
-    });
+    await sharp(buffer).toFile(`${path}.${new_extension}`);
 }
-function compress_webp_file(tmp_path, path, new_extension) {
-    return new Promise(resolve => {
-        sharp(tmp_path)
-            .webp({
-                quality: 80,
-                effort: 0
-            })
-            .toFile(`${path}.${new_extension}`, async (err, info) => {
-                await fs.promises.unlink(tmp_path);
+async function compress_webp_file(tmp_path, path, new_extension) {
+    let buffer = await sharp(`${path}.${new_extension}`)
+        .webp({
+            quality: 80,
+            effort: 0
+        })
+        .toBuffer();
 
-                resolve(true);
-            });
-    });
+    await sharp(buffer).toFile(`${path}.${new_extension}`);
 }
-async function compress_image_files() {
+function compress_image_files() {
     const process_start_time = performance.now();
     const working_directory = `${process.cwd().replaceAll('\\', '/')}/`;
+    const _tmp_directory = working_directory + '_tmp_/';
     const supported_file_types = ['jpeg', 'jpg', 'png', 'svg', 'webp'];
     const image_files = [];
 
@@ -208,9 +183,9 @@ async function compress_image_files() {
         for(let i=0;i<image_files.length;i++) {
             const file_name_extension = get_file_name_extension(image_files[i]);
             const file_name = get_file_name_without_extension(image_files[i]);
-            const tmp_file_indicator = 'tmp_';
+            /* const tmp_file_indicator = 'tmp_';
 
-            await fs.promises.copyFile(working_directory + image_files[i], `${working_directory + tmp_file_indicator + file_name}.${file_name_extension}`);
+            await fs.promises.copyFile(working_directory + image_files[i], `${_tmp_directory + file_name}.${file_name_extension}`);
 
             try {
                 await fs.promises.unlink(working_directory + image_files[i], (err) => {
@@ -218,34 +193,35 @@ async function compress_image_files() {
                 });
             } catch(error) {
                 //console.log(error);
-            }
+            } */
             
             if(file_name_extension == 'png') {
-                compress_png_file(working_directory + tmp_file_indicator + image_files[i], working_directory + file_name, 'png').then(() => {
-                    if(i == image_files.length-1) {
-                        const process_end_time = performance.now();
-                        resolve([image_files.length, process_end_time - process_start_time]);
-                    }
-                });
+                await compress_png_file(_tmp_directory + image_files[i], working_directory + file_name, 'png');
+
+                if(i == image_files.length-1) {
+                    const process_end_time = performance.now();
+                    resolve([image_files.length, process_end_time - process_start_time]);
+                }
             } else if(file_name_extension == 'jpeg' || file_name_extension == 'jpg') {
                 if(file_name_extension == 'jpg') {
-                    await fs.promises.copyFile(`${working_directory + tmp_file_indicator + file_name}.${file_name_extension}`, `${working_directory + tmp_file_indicator + file_name}.jpeg`);
-                    await fs.promises.unlink(`${working_directory + tmp_file_indicator + file_name}.${file_name_extension}`);
+                    //await fs.promises.copyFile(`${working_directory + file_name}.${file_name_extension}`, `${working_directory + file_name}.jpeg`);
+                    //await fs.promises.unlink(`${working_directory + file_name}.${file_name_extension}`);
+                    await fs.promises.rename(`${working_directory + file_name}.${file_name_extension}`, `${working_directory + file_name}.jpeg`);
                 }
 
-                compress_jpeg_file(`${working_directory + tmp_file_indicator + file_name}.jpeg`, working_directory + file_name, 'jpeg').then(() => {
-                    if(i == image_files.length-1) {
-                        const process_end_time = performance.now();
-                        resolve([image_files.length, process_end_time - process_start_time]);
-                    }
-                });
+                await compress_jpeg_file(`${_tmp_directory + file_name}.jpeg`, working_directory + file_name, 'jpeg');
+
+                if(i == image_files.length-1) {
+                    const process_end_time = performance.now();
+                    resolve([image_files.length, process_end_time - process_start_time]);
+                }
             } else if(file_name_extension == 'webp') {
-                compress_webp_file(working_directory + tmp_file_indicator + image_files[i], working_directory + file_name, 'webp').then(() => {
-                    if(i == image_files.length-1) {
-                        const process_end_time = performance.now();
-                        resolve([image_files.length, process_end_time - process_start_time]);
-                    }
-                });
+                await compress_webp_file(_tmp_directory + image_files[i], working_directory + file_name, 'webp');
+
+                if(i == image_files.length-1) {
+                    const process_end_time = performance.now();
+                    resolve([image_files.length, process_end_time - process_start_time]);
+                }
             }
         }
     });
