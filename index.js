@@ -9,8 +9,15 @@ const errors = {    //Contains all errors that could be displayed when running t
 }
 const commands_help = {     //-help flag content
     "auto": `Is the default flag if none other is provided. It optimizes every image file in the target directory without changing its filetype. ${print_text_in_color('cyan', 'EXCEPTION')}: .jpg -> .jpeg`,
-    "toWEBP": "Converts all image files of filetype (PNG, JPEG/JPG) to WEBP files."
+    "toWEBP  ": "Converts all image files of filetype (PNG, JPEG/JPG) to WEBP files.",
+    "toLC  ": "Renames all image files of filetype (PNG, JPEG/JPG, WEBP) to lowercase format.",
+    "quality<?>": `Set the quality percentage for image compression (default is 80). Has to be between 1 and 100 (best). ${print_text_in_color('magenta', 'Example: ')} -quality75`,
+    "silent": "Hide all logs and information"
 }
+const working_directory = `${process.cwd().replaceAll('\\', '/')}/`;    //Holds a string of the directory the script got called from != index.js directory
+
+let quality_compression = 80;
+let silent_mode = false;
 
 if(require.main === module) { main(); }
 async function main() {
@@ -29,17 +36,24 @@ async function main() {
     //flags without thinking about their execution order
     run_flags = order_run_flags_by_execution(run_flags);
 
-    if(run_flags.includes("help")) { run_help_dialogue(); }
+    if(['help', 'h'].some(flag => run_flags.includes(flag))) { run_help_dialogue(); }
 
-    const working_directory = `${process.cwd().replaceAll('\\', '/')}/`;    //Holds a string of the directory the script got called from != index.js directory
+    run_flags.map(flag => { 
+        //Check if the quality flag is set and if so, assign the quality to the
+        //global quality_compression variable
+        if(flag.slice(0, 7) == 'quality') { 
+            quality_compression = parseInt(flag.slice(7, flag.length));
+        }  else if(flag == 'silent') { 
+            silent_mode = true;
+        }
+    });
+
     const dir_size = [await get_directory_size(working_directory), 0];
 
     if(!run_flags.length) {     //If no flags are provided the script should perfom the 'auto' mode = -o
         print_execution_report('compression', ... await compress_image_files());
     } else {
         for(let i=0;i<run_flags.length;i++) {
-            run_flags[i] = run_flags[i].toLocaleLowerCase();
-
             switch(run_flags[i]) {
                 case "auto":    //Using this flag is the equivalent to using no flag
                     print_execution_report('compression', ... await compress_image_files());
@@ -49,6 +63,9 @@ async function main() {
                     break;
                 case "towebp":  //Converts PNG/JPEG/JPG to WEBP file
                     print_execution_report('conversion', ... await image_files_to_webp());
+                    break;
+                case "tolc":  //Renames files to lowercase format
+                    await files_to_lowercase();
                     break;
                 default:
                     break;
@@ -62,11 +79,25 @@ async function main() {
         print_directory_size_change(dir_size[0], dir_size[1]);
     }
 }
+async function files_to_lowercase() {
+    const supported_file_types = ['jpeg', 'jpg', 'png', 'svg', 'webp'];
+    const directory_files = await fs.promises.readdir(working_directory);
+    
+    directory_files.forEach(async file => {     //Loop through supported image files
+        if(supported_file_types.includes(get_file_name_extension(file))) {
+            await fs.promises.rename(working_directory + file, working_directory + file.toLowerCase());   //Rename file to lowercase format
+        }
+    });
+}
 //Takes the directory size before running the script and after running it.
 //The two inputs are in bytes and need to be formated with ` for better
 //readability. Then these bytes are converted to either be displayed as
 //e.g. 10 MB or e.g. 460 KB
 function print_directory_size_change(size_before, size_after) {
+    if(silent_mode) {   //Skip console logs
+        return true;
+    }
+
     const formatted_bytes = [size_before.toString().replace(/\B(?=(\d{3})+(?!\d))/g, "`"), size_after.toString().replace(/\B(?=(\d{3})+(?!\d))/g, "`")];
     const converted_bytes = [0, 0];
 
@@ -101,8 +132,7 @@ async function get_directory_size(directory) {
 //JPG files are converted to JPEG beforhand
 function image_files_to_webp() {
     const process_start_time = performance.now();
-    const working_directory = `${process.cwd().replaceAll('\\', '/')}/`;    //Holds a string of the directory the script got called from != index.js directory
-    const supported_file_types = ['jpeg', 'png'];
+    const supported_file_types = ['jpg', 'jpeg', 'png'];
     const image_files = [];
 
     fs.readdirSync(working_directory).forEach(file => {     //Create an array of files that have the correct filetype to be converted to WEBP
@@ -143,6 +173,10 @@ async function convert_image_file(path, new_extension) {
 //Prints information to the console about what process has finished
 //What amount of data it has processed and how long that took in either Milliseconds or Seconds
 function print_execution_report(process_type, processed_amount, process_duration) {
+    if(silent_mode) {   //Skip console logs
+        return true;
+    }
+
     //(process_duration / (process_duration.toString().length >= 4 ? 1000 : 1)
     //Moves the decimal point depending on the process duration. 
     //If process_duration >= 1000 milliseconds then divide by 1000 = 1 Second
@@ -190,7 +224,7 @@ async function compress_png_file(path, extension) {
 async function compress_jpeg_file(path, extension) {
     let buffer = await sharp(`${path}.${extension}`)
         .jpeg({
-            quality: 80,
+            quality: quality_compression,
             progressive: true,
             optimizeScans: true,
             trellisQuantisation: true,
@@ -208,7 +242,7 @@ async function compress_jpeg_file(path, extension) {
 async function compress_webp_file(path, extension) {
     let buffer = await sharp(`${path}.${extension}`)
         .webp({
-            quality: 80,
+            quality: quality_compression,
             effort: 0
         })
         .toBuffer();
@@ -218,7 +252,6 @@ async function compress_webp_file(path, extension) {
 //Compresses all supported image files in a directory
 function compress_image_files() {
     const process_start_time = performance.now();
-    const working_directory = `${process.cwd().replaceAll('\\', '/')}/`;    //Holds a string of the directory the script got called from != index.js directory
     const supported_file_types = ['jpeg', 'jpg', 'png', 'svg', 'webp'];     //Feature to compress/optimize SVG files is yet missing. SVGs are skipped
     const image_files = [];
 
@@ -285,12 +318,18 @@ function run_help_dialogue() {
     process.exit();
 }
 function check_run_flag_error(run_flags) {
-    const supported_flags = ["auto", "towebp", "help", "o"];
+    const supported_flags = ['auto', 'towebp', 'help', 'h', 'o', 'tolc', 'silent'];   //Quality flag listed below
     let invalid_flags = [];
 
     for(let i=0;i<run_flags.length;i++) {
         if(!supported_flags.includes(run_flags[i].toLowerCase())) {
-            invalid_flags.push(run_flags[i]);
+            //Check if quality flag is present - only check first 7 chars because the last chars are individual (percentage of quality)
+            //If the length of the percentage is less than 1 and more than 3 return error
+            if(run_flags[i].slice(0, 7).toLowerCase() == 'quality' && run_flags[i].length > 7 && run_flags[i].length < 11) {
+                //pass
+            } else {
+                invalid_flags.push(run_flags[i]);
+            }
         }
     }
 
